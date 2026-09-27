@@ -41,15 +41,6 @@ flowchart LR
 | [hunter130_deploy](https://github.com/EncosTech/hunter130_deploy) | EC130 实机 ROS 2 控制系统，包含硬件接口、遥控器通信、站立与强化学习行走控制 | ROS 2 Jazzy、ros2_control、C++、ONNX Runtime | GPL-3.0 |
 | [robot_setup](https://github.com/EncosTech/robot_setup) | 机器人连接检查、通信验证、电机 ID 设置、关节校准、IMU 检测与整机运动验证工具 | Python、Web UI、`emcli` | 仓库暂未声明统一许可证 |
 
-## 推荐阅读路径
-
-- 想了解整机结构、装配或仿真模型：从 [`hunter130_hardware`](https://github.com/EncosTech/hunter130_hardware) 开始。
-- 想开发电机或总线通信：阅读 [`encos_driver`](https://github.com/EncosTech/encos_driver)，再使用 [`encos_cli`](https://github.com/EncosTech/encos_cli) 调试。
-- 想基于关节接口开发控制程序：在驱动之上使用 [`joint_sdk`](https://github.com/EncosTech/joint_sdk)。
-- 想训练行走策略：使用 [`hunter130_train`](https://github.com/EncosTech/hunter130_train) 完成训练、回放与 ONNX 导出。
-- 想部署到实机：使用 [`hunter130_deploy`](https://github.com/EncosTech/hunter130_deploy) 构建 ROS 2 控制系统。
-- 想进行交付前检查与校准：使用 [`robot_setup`](https://github.com/EncosTech/robot_setup)。
-
 ## 获取全部项目
 
 各组件是相互独立的 Git 仓库。下面的命令会创建一个本地工作区，并将当前公开项目克隆到同一目录：
@@ -81,16 +72,6 @@ git -C <仓库目录> submodule update --init --recursive
 ```
 
 不同项目的系统依赖和构建流程并不相同，请进入对应仓库并遵循其 README。典型环境包括 Ubuntu 24.04、ROS 2 Jazzy、CMake/C++17，以及用于训练的 Isaac Sim / Isaac Lab。
-
-## 典型工作流
-
-1. 从 `hunter130_hardware` 获取机械、电气和 URDF 资料，确认机器人版本与关节配置。
-2. 安装 `encos_driver`，建立电机、IMU、电池和 PMS 等设备的通信能力。
-3. 使用 `encos_cli` 扫描设备、验证通信并完成底层调试。
-4. 使用 `joint_sdk` 构建关节级控制逻辑。
-5. 在 `hunter130_train` 中训练并导出 ONNX 策略。
-6. 通过 `hunter130_deploy` 将硬件接口、控制器和策略接入 ROS 2 实机系统。
-7. 使用 `robot_setup` 完成整机配置、校准、验证及运动数据导出。
 
 ## 安全提示
 
