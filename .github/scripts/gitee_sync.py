@@ -8,10 +8,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from urllib.parse import quote, urljoin
 
 import requests
@@ -55,6 +57,8 @@ class API:
                 params["access_token"] = self.token
             else:
                 data["access_token"] = self.token
+        if files:
+            return self.upload(method, path, params, data, files)
         # Retry reads only; retrying POST after a lost response could duplicate assets.
         for attempt in range(4):
             try:
@@ -63,17 +67,48 @@ class API:
                     json=data if data and not files else None,
                     data=data if files else None, files=files, timeout=(20, 300 if files else 60),
                 )
-            except requests.RequestException:
+            except requests.RequestException as error:
                 if method == "GET" and attempt < 3:
                     time.sleep(2 ** attempt)
                     continue
-                raise RuntimeError(f"{self.platform} {method} {path}: network failure") from None
+                detail = str(error).replace(self.token, '***').replace(quote(self.token, safe=''), '***')
+                raise RuntimeError(f"{self.platform} {method} {path}: {type(error).__name__}: {detail[:500]}") from None
             if method == "GET" and response.status_code in (429, 500, 502, 503, 504) and attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
             if not response.ok:
                 detail = response.text[:800].replace(self.token, "***")
                 raise APIError(response.status_code, f"{self.platform} {method} {path}: HTTP {response.status_code}: {detail}")
+            return response.json() if response.content else None
+
+    def upload(self, method, path, params, data, files):
+        # A file-like body makes urllib3 send bounded chunks. requests' default
+        # files= encoder buffers the complete attachment and sends it in one
+        # SSL write, which can time out on cross-border uploads.
+        boundary = 'encostech-' + uuid.uuid4().hex
+        with tempfile.TemporaryFile() as body:
+            for key, value in data.items():
+                body.write((f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n'
+                            f'{value}\r\n').encode())
+            for key, (name, stream, content_type) in files.items():
+                safe_name = name.replace('\r', '%0D').replace('\n', '%0A').replace('"', '%22')
+                body.write((f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"; filename="{safe_name}"\r\n'
+                            f'Content-Type: {content_type}\r\n\r\n').encode())
+                shutil.copyfileobj(stream, body)
+                body.write(b'\r\n')
+            body.write(f'--{boundary}--\r\n'.encode())
+            length = body.tell()
+            body.seek(0)
+            try:
+                response = self.session.request(method, self.base + path, params=params, data=body,
+                    headers={'Content-Type': f'multipart/form-data; boundary={boundary}', 'Content-Length': str(length)},
+                    timeout=(120, 300))
+            except requests.RequestException as error:
+                detail = str(error).replace(self.token, '***').replace(quote(self.token, safe=''), '***')
+                raise RuntimeError(f'{self.platform} upload {path}: {type(error).__name__}: {detail[:500]}') from None
+            if not response.ok:
+                detail = response.text[:800].replace(self.token, '***')
+                raise APIError(response.status_code, f'{self.platform} upload {path}: HTTP {response.status_code}: {detail}')
             return response.json() if response.content else None
 
     def pages(self, path):
@@ -337,6 +372,7 @@ def sync_releases(github, gitee, source_path, target_path, directory):
             for old in matches:
                 gitee.request("DELETE", f"{release_path}/attach_files/{old['id']}")
             with file.open("rb") as stream:
+                print(f'Uploading {tag}/{name} ({asset["size"]} bytes)', flush=True)
                 uploaded = gitee.request("POST", release_path + "/attach_files", files={
                     "file": (name, stream, "application/octet-stream"),
                 })
