@@ -1,0 +1,41 @@
+name: Sync to Gitee
+
+on:
+  push:
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-gitee-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository_owner == 'EncosTech'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out synchronization tools
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Install synchronization dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/gitee-sync-venv"
+          "$RUNNER_TEMP/gitee-sync-venv/bin/pip" install --disable-pip-version-check git-filter-repo==2.47.0 requests==2.32.5
+          echo "$RUNNER_TEMP/gitee-sync-venv/bin" >> "$GITHUB_PATH"
+          git lfs version
+      - name: Wait for the release publishing script
+        if: github.event_name == 'push'
+        run: sleep 60
+      - name: Sync branches, tags, LFS and releases
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: EncosTech
+        run: python3 .github/scripts/gitee_sync.py
