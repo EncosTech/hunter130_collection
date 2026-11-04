@@ -123,8 +123,9 @@ def filter_repository(directory, submodule_maps=None):
     mapping_file = Path(directory).parent / (Path(directory).name + '-submodules.json')
     mapping_file.write_text(json.dumps(submodule_maps or {}))
     env['GITEE_SUBMODULE_MAP'] = str(mapping_file)
+    refs = git(directory, 'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/tags', capture=True).splitlines()
     subprocess.run([
-        "git", "-C", str(directory), "filter-repo", "--force",
+        "git", "-C", str(directory), "filter-repo", "--force", '--partial',
         "--path-regex", r"(^|/)\.github(/|$)", "--invert-paths",
         "--prune-empty", "never", "--prune-degenerate", "never",
         "--preserve-commit-hashes", "--replace-refs", "delete-no-add",
@@ -139,6 +140,7 @@ for change in commit.file_changes:
             raise RuntimeError('Unmapped EncosTech submodule commit: ' + path + '@' + old)
         change.blob_id = mapping[path][old].encode()
 """,
+        '--refs', *refs,
     ], check=True, env=env)
 
 
@@ -244,9 +246,16 @@ def sync_git(gitee, source, target_path, target, directory):
     git(mirror, "fetch", "--force", "--prune", "origin", "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
     if not git(mirror, "for-each-ref", "--format=%(refname)", "refs/heads", capture=True):
         raise RuntimeError("Source has no branches; refusing to prune the destination")
+    # Keep original commits reachable in LOCAL-ONLY refs. After filtering, a
+    # bitmap spanning both histories lets Git omit blobs the destination owns.
+    originals = git(mirror, 'for-each-ref', '--format=%(objectname) %(refname)',
+                    'refs/heads', 'refs/tags', capture=True).splitlines()
+    for line in originals:
+        oid, ref = line.split(' ', 1)
+        git(mirror, 'update-ref', 'refs/sync-source/' + ref.removeprefix('refs/'), oid)
     maps = submodule_mappings(mirror, directory, stack=(source['name'].lower(),))
     filter_repository(mirror, maps)
-    git(mirror, "remote", "add", "origin", source["clone_url"])
+    git(mirror, 'repack', '-adb')
     git(mirror, "remote", "add", "gitee", f"https://gitee.com/{target['full_name']}.git")
     # Submodule gitlinks are preserved by git-filter-repo. Never initialize or
     # execute submodules as part of mirroring the parent repository.
@@ -261,8 +270,11 @@ def sync_git(gitee, source, target_path, target, directory):
         git(mirror, '-c', 'lfs.url=' + target_lfs, '-c', 'lfs.pushurl=' + target_lfs,
             "lfs", "push", "--all", "gitee")
     refspecs = ("+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+    # --partial retains original objects locally, allowing thin packs against
+    # an imported destination. Only the filtered heads/tags are ever pushed.
     # Avoid chunked HTTP uploads: some Gitee/proxy paths stall on streamed packs.
-    git(mirror, '-c', 'http.postBuffer=268435456', "push", "--progress", "gitee", *refspecs)
+    git(mirror, '-c', 'http.version=HTTP/1.1', '-c', 'http.postBuffer=268435456',
+        "push", "--progress", "gitee", *refspecs)
     if target.get("default_branch") != source["default_branch"]:
         gitee.request("PATCH", target_path, data={"default_branch": source["default_branch"]})
     git(mirror, "push", "--prune", "gitee", *refspecs)
@@ -298,7 +310,7 @@ def sync_releases(github, gitee, source_path, target_path, directory):
     for release in reversed(source):
         tag = release["tag_name"]
         payload = {"tag_name": tag, "name": release.get("name") or tag,
-                   "body": transform_text(release.get("body")) or " ",
+                   "body": transform_text(release.get("body")).strip() or f"Release {tag}",
                    "prerelease": release.get("prerelease", False)}
         target = targets.get(tag)
         if target is None:
