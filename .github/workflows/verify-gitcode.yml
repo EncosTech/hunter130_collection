@@ -1,0 +1,23 @@
+name: Verify GitCode uploads
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read release attachment metadata
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+        run: |
+          python3 - <<'PYCODE'
+          import os,json,urllib.request,urllib.parse
+          for repo in ['encos_driver','encos_cli','robot_setup']:
+              url='https://api.gitcode.com/api/v5/repos/EncosTech/'+repo+'/releases?per_page=100&access_token='+urllib.parse.quote(os.environ['GITCODE_TOKEN'],safe='')
+              try:
+                  data=json.load(urllib.request.urlopen(url,timeout=45))
+                  print(json.dumps({'repo':repo,'releases':[{'tag':r['tag_name'],'assets':[{'name':a['name'],'size':a.get('size')} for a in r.get('assets',[]) if a.get('id') is not None]} for r in data]}),flush=True)
+              except Exception as e:
+                  print(repo,type(e).__name__,getattr(e,'code',None),flush=True)
+                  raise SystemExit(1)
+          PYCODE
