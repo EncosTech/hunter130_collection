@@ -1,4 +1,4 @@
-name: Sync to Gitee
+name: Sync to GitCode
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sync-gitee-${{ github.repository }}
+  group: sync-gitcode-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -26,9 +26,9 @@ jobs:
           sparse-checkout: .github/scripts
       - name: Install synchronization dependencies
         run: |
-          python3 -m venv "$RUNNER_TEMP/gitee-sync-venv"
-          "$RUNNER_TEMP/gitee-sync-venv/bin/pip" install --disable-pip-version-check git-filter-repo==2.47.0 requests==2.32.5
-          echo "$RUNNER_TEMP/gitee-sync-venv/bin" >> "$GITHUB_PATH"
+          python3 -m venv "$RUNNER_TEMP/gitcode-sync-venv"
+          "$RUNNER_TEMP/gitcode-sync-venv/bin/pip" install --disable-pip-version-check git-filter-repo==2.47.0 requests==2.32.5
+          echo "$RUNNER_TEMP/gitcode-sync-venv/bin" >> "$GITHUB_PATH"
           git lfs version
       - name: Wait for the release publishing script
         if: github.event_name == 'push'
@@ -36,6 +36,6 @@ jobs:
       - name: Sync branches, tags, LFS and releases
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_OWNER: EncosTech
-        run: python3 .github/scripts/gitee_sync.py
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          GITCODE_OWNER: EncosTech
+        run: python3 .github/scripts/gitcode_sync.py
